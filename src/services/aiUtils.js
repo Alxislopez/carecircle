@@ -2,7 +2,7 @@
 
 export function computeAdherence(logs) {
   // logs: array of {status, scheduledTime, actualTime}
-  const total = logs.length;
+    const total = logs.length;
   const taken = logs.filter(l => l.status === "Taken").length;
   const missed = logs.filter(l => l.status === "Missed").length;
   const skipped = logs.filter(l => l.status === "Skipped").length;
@@ -10,7 +10,7 @@ export function computeAdherence(logs) {
   
   const pct = total === 0 ? 100 : Math.round((taken / total) * 100);
   
-  let risk = "Low";
+    let risk = "Low";
   if (pct < 60) risk = "High";
   else if (pct < 80) risk = "Medium";
   
@@ -303,5 +303,5 @@ export function aiInsightFromLogs(logs) {
   } else {
     return "👍 Good adherence — keep up the routine!";
   }
-}
+  }
   

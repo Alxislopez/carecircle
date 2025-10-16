@@ -231,7 +231,7 @@ export default function DoctorDashboard() {
                 {patients.map((patient) => {
                   // Mock adherence calculation (in real app, calculate from actual data)
                   const adherence = Math.floor(Math.random() * 40) + 60;
-                  return (
+  return (
                   <div key={patient.id || patient._id} className="bg-white rounded-lg shadow p-6">
                       <div className="flex justify-between items-start">
                         <div className="flex-1">
@@ -255,7 +255,50 @@ export default function DoctorDashboard() {
                             >
                               View Details
                             </button>
-                            <button className="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700">
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const medName = prompt('Enter medicine name to update/create');
+                                  if (!medName) return;
+                                  const dosage = prompt('Enter dosage (e.g., 500mg)') || '1 unit';
+                                  const frequency = prompt('Enter frequency (e.g., Once daily)') || 'Once daily';
+                                  const timesInput = prompt('Reminder times (comma-separated HH:MM, e.g., 08:00,20:00)', '08:00,20:00') || '';
+                                  const reminderTimes = timesInput
+                                    .split(',')
+                                    .map(t => t.trim())
+                                    .filter(t => /^\d{2}:\d{2}$/.test(t));
+                                  const today = new Date().toISOString().split('T')[0];
+
+                                  const payload = {
+                                    patientId: patient.id || patient._id,
+                                    name: medName,
+                                    dosage,
+                                    frequency,
+                                    duration: '',
+                                    instructions: '',
+                                    startDate: today,
+                                    endDate: null,
+                                    reminderTimes
+                                  };
+
+                                  const res = await fetch('http://localhost:5000/api/medicine/add', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(payload)
+                                  });
+                                  const data = await res.json();
+                                  if (!res.ok) {
+                                    alert(data.message || 'Failed to update prescription');
+                                    return;
+                                  }
+                                  alert('Prescription updated');
+                                  fetchPatientDetails(patient.id || patient._id);
+                                } catch (e) {
+                                  alert('Error updating prescription');
+                                }
+                              }}
+                              className="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700"
+                            >
                               Update Prescription
                             </button>
                           </div>
@@ -315,7 +358,16 @@ export default function DoctorDashboard() {
                         >
                           Respond
                         </button>
-                        <button className="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700">
+                        <button
+                          onClick={() => {
+                            if (!alert.location) return;
+                            const lat = alert.location.latitude;
+                            const lng = alert.location.longitude;
+                            const url = `https://www.google.com/maps?q=${lat},${lng}`;
+                            window.open(url, '_blank');
+                          }}
+                          className="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700"
+                        >
                           View Location
                         </button>
                       </div>
@@ -424,7 +476,7 @@ export default function DoctorDashboard() {
                 >
                   Export Data
                 </button>
-              </div>
+        </div>
             </div>
         </div>
         )}

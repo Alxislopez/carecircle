@@ -341,13 +341,35 @@ export default function FamilyDashboard() {
                     <h3 className="text-lg font-semibold mb-2">Quick Actions</h3>
                     <div className="space-y-2">
                       <button
-                        onClick={() => setStatusMsg("Check-in request sent!")}
+                        onClick={async () => {
+                          try {
+                            await fetch('http://localhost:5000/api/notifications/check-in', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ patientId: linkedPatient.id || linkedPatient._id, fromUserId: user.id, message: 'Family requested a check-in' })
+                            });
+                            setStatusMsg('Check-in request sent!');
+                          } catch (e) {
+                            setStatusMsg('Failed to send check-in');
+                          }
+                        }}
                         className="w-full bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
                       >
                         Request Check-in
                       </button>
                       <button
-                        onClick={() => setStatusMsg("Reminder sent!")}
+                        onClick={async () => {
+                          try {
+                            await fetch('http://localhost:5000/api/notifications/reminder', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ patientId: linkedPatient.id || linkedPatient._id, fromUserId: user.id })
+                            });
+                            setStatusMsg('Reminder sent!');
+                          } catch (e) {
+                            setStatusMsg('Failed to send reminder');
+                          }
+                        }}
                         className="w-full bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
                       >
                         Send Reminder
@@ -476,10 +498,33 @@ export default function FamilyDashboard() {
                             )}
                           </div>
                           <div className="flex space-x-2">
-                            <button className="bg-red-600 text-white px-4 py-2 rounded text-sm hover:bg-red-700">
+                            <button
+                              onClick={() => {
+                                if (!alert.location) return;
+                                const lat = alert.location.latitude;
+                                const lng = alert.location.longitude;
+                                const url = `https://www.google.com/maps?q=${lat},${lng}`;
+                                window.open(url, '_blank');
+                              }}
+                              className="bg-red-600 text-white px-4 py-2 rounded text-sm hover:bg-red-700"
+                            >
                               View Location
                             </button>
-                            <button className="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700">
+                            <button
+                              onClick={() => {
+                                const phone = linkedPatient?.phone;
+                                const email = linkedPatient?.email;
+                                if (phone) {
+                                  // try tel first for mobile devices
+                                  window.location.href = `tel:${phone}`;
+                                } else if (email) {
+                                  window.location.href = `mailto:${email}?subject=${encodeURIComponent('Emergency Alert')}&body=${encodeURIComponent('Are you ok?')}`;
+                                } else {
+                                  alert('No patient contact info available');
+                                }
+                              }}
+                              className="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700"
+                            >
                               Contact Patient
                             </button>
                         </div>

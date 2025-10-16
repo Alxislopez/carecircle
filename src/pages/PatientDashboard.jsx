@@ -15,6 +15,7 @@ export default function PatientDashboard() {
   const [showLinkForm, setShowLinkForm] = useState(false);
   const [linkCode, setLinkCode] = useState("");
   const [linkStatus, setLinkStatus] = useState("");
+  const [inbox, setInbox] = useState([]);
 
   useEffect(() => {
     const userData = localStorage.getItem("user");
@@ -29,6 +30,10 @@ export default function PatientDashboard() {
     if (user) {
       fetchMedicines();
       fetchTodayMedicines();
+      fetchInbox();
+      // Basic client timer: check every minute if there's a pending dose older than 60 minutes then escalate
+      const interval = setInterval(checkForOverdue, 60000);
+      return () => clearInterval(interval);
     }
   }, [user]);
 
@@ -39,6 +44,16 @@ export default function PatientDashboard() {
       setMedicines(data);
     } catch (err) {
       console.error("Error fetching medicines:", err);
+    }
+  };
+
+  const fetchInbox = async () => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/notifications/inbox/${user.id}`);
+      const data = await res.json();
+      setInbox(data);
+    } catch (e) {
+      // silent
     }
   };
 
@@ -73,6 +88,39 @@ export default function PatientDashboard() {
       }
     } catch (err) {
       console.error("Error:", err);
+    }
+  };
+
+  const checkForOverdue = async () => {
+    try {
+      const now = new Date();
+      // if todayMedicines not loaded yet, fetch
+      if (!todayMedicines || todayMedicines.length === 0) return;
+      for (const m of todayMedicines) {
+        if (m.status === 'Pending' && m.reminderTimes && m.reminderTimes.length > 0) {
+          const [h, mi] = m.reminderTimes[0].split(':');
+          const scheduled = new Date(now);
+          scheduled.setHours(parseInt(h), parseInt(mi), 0, 0);
+          const diffMin = (now - scheduled) / 60000;
+          if (diffMin > 60) {
+            // escalate once
+            await fetch('http://localhost:5000/api/notifications/escalate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ patientId: user.id, medicineId: m._id, reason: 'Missed dose > 60 minutes' })
+            });
+          } else if (diffMin > 0 && diffMin < 10) {
+            // send reminder window
+            await fetch('http://localhost:5000/api/notifications/reminder', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ patientId: user.id, medicineId: m._id })
+            });
+          }
+        }
+      }
+    } catch (e) {
+      // silent fail
     }
   };
 
@@ -466,6 +514,21 @@ export default function PatientDashboard() {
                   Export
                 </button>
               </div>
+              <div className="bg-white rounded-lg shadow p-6 md:col-span-3">
+                <h3 className="text-lg font-semibold mb-2">Inbox</h3>
+                {inbox.length === 0 ? (
+                  <p className="text-gray-500">No messages</p>
+                ) : (
+                  <div className="space-y-2">
+                    {inbox.map(item => (
+                      <div key={item._id} className="p-3 border rounded">
+                        <div className="text-sm text-gray-500">{new Date(item.createdAt).toLocaleString()} • {item.type}</div>
+                        <div className="font-medium">{item.message}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -529,8 +592,8 @@ export default function PatientDashboard() {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+      </div>
+      </div>
       )}
 
       {/* SOS Button */}
