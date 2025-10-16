@@ -42,10 +42,11 @@ export default function FamilyDashboard() {
 
   const fetchLinkedPatient = async () => {
     try {
-      const res = await fetch(`http://localhost:5000/api/auth/profile/${user.linkedPatient}`);
+      const id = typeof user.linkedPatient === 'object' ? (user.linkedPatient.id || user.linkedPatient._id) : user.linkedPatient;
+      const res = await fetch(`http://localhost:5000/api/auth/profile/${id}`);
       const patientData = await res.json();
       setLinkedPatient(patientData);
-      fetchPatientData(patientData.id);
+      fetchPatientData(patientData.id || patientData._id);
     } catch (err) {
       console.error("Error fetching linked patient:", err);
     }
@@ -123,7 +124,8 @@ export default function FamilyDashboard() {
   const generateReport = async (period) => {
     try {
       const days = period === 'weekly' ? 7 : 30;
-      const res = await fetch(`http://localhost:5000/api/medicine/patient/${linkedPatient.id}/today`);
+      const pid = linkedPatient?.id || linkedPatient?._id;
+      const res = await fetch(`http://localhost:5000/api/medicine/patient/${pid}/today`);
       const activities = await res.json();
       
       // Calculate adherence

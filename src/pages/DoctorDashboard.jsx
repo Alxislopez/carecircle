@@ -52,11 +52,14 @@ export default function DoctorDashboard() {
   const fetchPatients = async () => {
     try {
       if (user.patients && user.patients.length > 0) {
-        const patientPromises = user.patients.map(patientId => 
-          fetch(`http://localhost:5000/api/auth/profile/${patientId}`).then(res => res.json())
-        );
+        const patientPromises = user.patients.map(async (patient) => {
+          // backend returns array of populated users or ids depending on source
+          const id = patient.id || patient._id || patient;
+          const res = await fetch(`http://localhost:5000/api/auth/profile/${id}`);
+          return await res.json();
+        });
         const patientData = await Promise.all(patientPromises);
-        setPatients(patientData);
+        setPatients(patientData.filter(Boolean));
       } else {
         setPatients([]);
       }
@@ -229,11 +232,11 @@ export default function DoctorDashboard() {
                   // Mock adherence calculation (in real app, calculate from actual data)
                   const adherence = Math.floor(Math.random() * 40) + 60;
                   return (
-                    <div key={patient.id} className="bg-white rounded-lg shadow p-6">
+                  <div key={patient.id || patient._id} className="bg-white rounded-lg shadow p-6">
                       <div className="flex justify-between items-start">
                         <div className="flex-1">
-                          <h3 className="text-lg font-semibold">{patient.name}</h3>
-                          <p className="text-gray-600">{patient.email}</p>
+                          <h3 className="text-lg font-semibold">{patient.name || 'Unnamed patient'}</h3>
+                          <p className="text-gray-600">{patient.email || '—'}</p>
                           <p className="text-sm text-gray-500">Phone: {patient.phone || "Not provided"}</p>
                           <p className="text-sm text-gray-500">Emergency: {patient.emergencyContact || "Not provided"}</p>
                         </div>
@@ -245,7 +248,7 @@ export default function DoctorDashboard() {
                             <button
                               onClick={() => {
                                 setSelectedPatient(patient);
-                                fetchPatientDetails(patient.id);
+                                fetchPatientDetails(patient.id || patient._id);
                                 setActiveTab("patient-detail");
                               }}
                               className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700"
