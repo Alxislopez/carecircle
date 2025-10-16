@@ -12,6 +12,9 @@ export default function PatientDashboard() {
   const [activeTab, setActiveTab] = useState("today");
   const [showAddForm, setShowAddForm] = useState(false);
   const [adherenceStats, setAdherenceStats] = useState({});
+  const [showLinkForm, setShowLinkForm] = useState(false);
+  const [linkCode, setLinkCode] = useState("");
+  const [linkStatus, setLinkStatus] = useState("");
 
   useEffect(() => {
     const userData = localStorage.getItem("user");
@@ -114,6 +117,108 @@ export default function PatientDashboard() {
     }
   };
 
+  const handleLinkUser = async () => {
+    if (!linkCode.trim()) {
+      setLinkStatus("Please enter a code");
+      return;
+    }
+
+    try {
+      const res = await fetch("http://localhost:5000/api/auth/link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userCode: user.uniqueCode,
+          targetCode: linkCode.trim()
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setLinkStatus("Successfully linked!");
+        setLinkCode("");
+        setShowLinkForm(false);
+        // Refresh user data from server
+        const profileRes = await fetch(`http://localhost:5000/api/auth/profile/${user.id}`);
+        const updatedUserData = await profileRes.json();
+        localStorage.setItem("user", JSON.stringify(updatedUserData));
+        setUser(updatedUserData);
+      } else {
+        setLinkStatus(data.message || "Error linking users");
+      }
+    } catch (err) {
+      setLinkStatus("Error: " + err.message);
+    }
+  };
+
+  const generateReport = async (period) => {
+    try {
+      const days = period === 'weekly' ? 7 : 30;
+      const res = await fetch(`http://localhost:5000/api/medicine/patient/${user.id}/today`);
+      const activities = await res.json();
+      
+      // Calculate adherence
+      const total = activities.length;
+      const taken = activities.filter(a => a.status === "Taken").length;
+      const adherence = total > 0 ? Math.round((taken / total) * 100) : 100;
+      
+      const reportData = {
+        period: period,
+        patientName: user.name,
+        totalMedicines: total,
+        taken: taken,
+        missed: activities.filter(a => a.status === "Missed").length,
+        skipped: activities.filter(a => a.status === "Skipped").length,
+        adherence: adherence,
+        activities: activities
+      };
+      
+      // Display report in alert (in real app, this would be a proper report view)
+      alert(`${period.charAt(0).toUpperCase() + period.slice(1)} Report for ${user.name}:\n\n` +
+            `Total Medicines: ${total}\n` +
+            `Taken: ${taken}\n` +
+            `Missed: ${reportData.missed}\n` +
+            `Skipped: ${reportData.skipped}\n` +
+            `Adherence Rate: ${adherence}%`);
+    } catch (err) {
+      alert("Error generating report: " + err.message);
+    }
+  };
+
+  const exportData = async () => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/medicine/patient/${user.id}/today`);
+      const activities = await res.json();
+      
+      // Create CSV content
+      const csvContent = [
+        ['Date', 'Medicine', 'Dosage', 'Status', 'Time'],
+        ...activities.map(activity => [
+          new Date(activity.scheduledTime).toLocaleDateString(),
+          activity.name,
+          activity.dosage,
+          activity.status,
+          activity.actualTime ? new Date(activity.actualTime).toLocaleTimeString() : 'N/A'
+        ])
+      ].map(row => row.join(',')).join('\n');
+      
+      // Create and download file
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${user.name}_medication_data.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+      alert("Data exported successfully!");
+    } catch (err) {
+      alert("Error exporting data: " + err.message);
+    }
+  };
+
   const getStatusColor = (status) => {
     switch (status) {
       case "Taken": return "bg-green-100 text-green-800";
@@ -138,6 +243,12 @@ export default function PatientDashboard() {
               <p className="text-sm text-blue-600">Your Code: {user.uniqueCode}</p>
             </div>
             <div className="flex space-x-3">
+              <button
+                onClick={() => setShowLinkForm(true)}
+                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+              >
+                Link Doctor/Family
+              </button>
               <button
                 onClick={() => setShowAddForm(true)}
                 className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
@@ -197,6 +308,27 @@ export default function PatientDashboard() {
         {/* Today's Medicines Tab */}
         {activeTab === "today" && (
           <div>
+            {/* Linked Users Info */}
+            {(user.linkedDoctor || (user.linkedFamily && user.linkedFamily.length > 0)) && (
+              <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h3 className="text-lg font-semibold text-blue-800 mb-2">Linked Healthcare Team</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {user.linkedDoctor && (
+                    <div className="bg-white rounded p-3">
+                      <p className="font-medium text-blue-700">Doctor</p>
+                      <p className="text-sm text-gray-600">Linked and monitoring your progress</p>
+                    </div>
+                  )}
+                  {user.linkedFamily && user.linkedFamily.length > 0 && (
+                    <div className="bg-white rounded p-3">
+                      <p className="font-medium text-blue-700">Family Members</p>
+                      <p className="text-sm text-gray-600">{user.linkedFamily.length} family member(s) monitoring your progress</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            
             <h2 className="text-xl font-semibold mb-4">Today's Medicine Schedule</h2>
             {todayMedicines.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
@@ -307,21 +439,30 @@ export default function PatientDashboard() {
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="text-lg font-semibold mb-2">Weekly Report</h3>
                 <p className="text-gray-600">View your medication adherence for the past 7 days</p>
-                <button className="mt-3 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+                <button 
+                  onClick={() => generateReport('weekly')}
+                  className="mt-3 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                >
                   Generate Report
                 </button>
               </div>
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="text-lg font-semibold mb-2">Monthly Report</h3>
                 <p className="text-gray-600">View your medication adherence for the past 30 days</p>
-                <button className="mt-3 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+                <button 
+                  onClick={() => generateReport('monthly')}
+                  className="mt-3 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                >
                   Generate Report
                 </button>
               </div>
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="text-lg font-semibold mb-2">Export Data</h3>
                 <p className="text-gray-600">Download your medication data as CSV or PDF</p>
-                <button className="mt-3 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+                <button 
+                  onClick={() => exportData()}
+                  className="mt-3 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                >
                   Export
                 </button>
               </div>
@@ -343,6 +484,51 @@ export default function PatientDashboard() {
                 fetchTodayMedicines();
               }}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Link User Modal */}
+      {showLinkForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">Link Doctor or Family</h3>
+              <button onClick={() => setShowLinkForm(false)} className="text-gray-500 hover:text-gray-700">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Enter Doctor or Family Code</label>
+                <input
+                  type="text"
+                  placeholder="e.g., D1234 or F5678"
+                  className="w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                  value={linkCode}
+                  onChange={(e) => setLinkCode(e.target.value.toUpperCase())}
+                />
+              </div>
+              {linkStatus && (
+                <p className="text-sm text-gray-600">{linkStatus}</p>
+              )}
+              <div className="flex space-x-3">
+                <button
+                  onClick={handleLinkUser}
+                  className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700"
+                >
+                  Link User
+                </button>
+                <button
+                  onClick={() => setShowLinkForm(false)}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

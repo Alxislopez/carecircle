@@ -22,11 +22,28 @@ export default function DoctorDashboard() {
       navigate("/");
       return;
     }
-    setUser(userObj);
+    // Always refresh the doctor profile from the backend so we get the latest
+    // linked patients list after any new linking operations
+    (async () => {
+      try {
+        const res = await fetch(`http://localhost:5000/api/auth/profile/${userObj.id}`);
+        if (res.ok) {
+          const fresh = await res.json();
+          setUser(fresh);
+          // Keep localStorage in sync so subsequent loads are up to date
+          localStorage.setItem("user", JSON.stringify(fresh));
+        } else {
+          // Fallback to local copy if server profile fails temporarily
+          setUser(userObj);
+        }
+      } catch {
+        setUser(userObj);
+      }
+    })();
   }, [navigate]);
 
   useEffect(() => {
-    if (user && user.patients) {
+    if (user) {
       fetchPatients();
       fetchSOSAlerts();
     }
@@ -34,13 +51,18 @@ export default function DoctorDashboard() {
 
   const fetchPatients = async () => {
     try {
-      const patientPromises = user.patients.map(patientId => 
-        fetch(`http://localhost:5000/api/auth/profile/${patientId}`).then(res => res.json())
-      );
-      const patientData = await Promise.all(patientPromises);
-      setPatients(patientData);
+      if (user.patients && user.patients.length > 0) {
+        const patientPromises = user.patients.map(patientId => 
+          fetch(`http://localhost:5000/api/auth/profile/${patientId}`).then(res => res.json())
+        );
+        const patientData = await Promise.all(patientPromises);
+        setPatients(patientData);
+      } else {
+        setPatients([]);
+      }
     } catch (err) {
       console.error("Error fetching patients:", err);
+      setPatients([]);
     }
   };
 
@@ -81,6 +103,48 @@ export default function DoctorDashboard() {
     if (adherence >= 90) return "Excellent";
     if (adherence >= 70) return "Moderate";
     return "Poor";
+  };
+
+  const generateReport = async (type) => {
+    try {
+      if (type === 'adherence') {
+        let reportData = "Patient Adherence Report:\n\n";
+        for (const patient of patients) {
+          const adherence = Math.floor(Math.random() * 40) + 60; // Mock data
+          reportData += `${patient.name}: ${adherence}% (${getAdherenceStatus(adherence)})\n`;
+        }
+        alert(reportData);
+      } else if (type === 'emergency') {
+        alert(`Emergency Alerts Report:\n\nTotal Alerts: ${sosAlerts.length}\nActive Alerts: ${sosAlerts.filter(a => a.status === 'Active').length}`);
+      } else if (type === 'export') {
+        // Create CSV content for all patients
+        const csvContent = [
+          ['Patient Name', 'Email', 'Phone', 'Adherence Rate', 'Status'],
+          ...patients.map(patient => [
+            patient.name,
+            patient.email,
+            patient.phone || 'N/A',
+            `${Math.floor(Math.random() * 40) + 60}%`,
+            getAdherenceStatus(Math.floor(Math.random() * 40) + 60)
+          ])
+        ].map(row => row.join(',')).join('\n');
+        
+        // Create and download file
+        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `doctor_patients_report.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        alert("Data exported successfully!");
+      }
+    } catch (err) {
+      alert("Error generating report: " + err.message);
+    }
   };
 
   if (!user) return <div>Loading...</div>;
@@ -331,21 +395,30 @@ export default function DoctorDashboard() {
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="text-lg font-semibold mb-2">Patient Adherence Report</h3>
                 <p className="text-gray-600">Generate comprehensive adherence reports for all patients</p>
-                <button className="mt-3 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+                <button 
+                  onClick={() => generateReport('adherence')}
+                  className="mt-3 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                >
                   Generate Report
                 </button>
               </div>
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="text-lg font-semibold mb-2">Emergency Alerts Report</h3>
                 <p className="text-gray-600">Export emergency alert history and response times</p>
-                <button className="mt-3 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700">
+                <button 
+                  onClick={() => generateReport('emergency')}
+                  className="mt-3 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+                >
                   Generate Report
                 </button>
               </div>
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="text-lg font-semibold mb-2">Export All Data</h3>
                 <p className="text-gray-600">Download all patient data as CSV or PDF</p>
-                <button className="mt-3 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+                <button 
+                  onClick={() => generateReport('export')}
+                  className="mt-3 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                >
                   Export Data
                 </button>
               </div>

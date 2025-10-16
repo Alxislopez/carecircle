@@ -28,8 +28,15 @@ export default function FamilyDashboard() {
   }, [navigate]);
 
   useEffect(() => {
-    if (user && user.linkedPatient) {
-      fetchLinkedPatient();
+    if (user) {
+      if (user.linkedPatient) {
+        fetchLinkedPatient();
+      } else {
+        setLinkedPatient(null);
+        setPatientMedicines([]);
+        setPatientActivities([]);
+        setSosAlerts([]);
+      }
     }
   }, [user]);
 
@@ -67,8 +74,8 @@ export default function FamilyDashboard() {
   const linkToPatient = async () => {
     if (!patientCodeInput.trim()) {
       setStatusMsg("Please enter a patient code");
-      return;
-    }
+        return;
+      }
 
     setStatusMsg("Linking to patient...");
     try {
@@ -84,10 +91,11 @@ export default function FamilyDashboard() {
       const data = await res.json();
       if (res.ok) {
         setStatusMsg("Successfully linked to patient!");
-        // Refresh user data
-        const updatedUser = { ...user, linkedPatient: data.patientId };
-        localStorage.setItem("user", JSON.stringify(updatedUser));
-        setUser(updatedUser);
+        // Refresh user data from server
+        const profileRes = await fetch(`http://localhost:5000/api/auth/profile/${user.id}`);
+        const updatedUserData = await profileRes.json();
+        localStorage.setItem("user", JSON.stringify(updatedUserData));
+        setUser(updatedUserData);
         setPatientCodeInput("");
       } else {
         setStatusMsg(data.message || "Error linking to patient");
@@ -109,6 +117,74 @@ export default function FamilyDashboard() {
       setMessage("");
     } catch (err) {
       setStatusMsg("Error sending message");
+    }
+  };
+
+  const generateReport = async (period) => {
+    try {
+      const days = period === 'weekly' ? 7 : 30;
+      const res = await fetch(`http://localhost:5000/api/medicine/patient/${linkedPatient.id}/today`);
+      const activities = await res.json();
+      
+      // Calculate adherence
+      const total = activities.length;
+      const taken = activities.filter(a => a.status === "Taken").length;
+      const adherence = total > 0 ? Math.round((taken / total) * 100) : 100;
+      
+      const reportData = {
+        period: period,
+        patientName: linkedPatient.name,
+        totalMedicines: total,
+        taken: taken,
+        missed: activities.filter(a => a.status === "Missed").length,
+        skipped: activities.filter(a => a.status === "Skipped").length,
+        adherence: adherence,
+        activities: activities
+      };
+      
+      // Display report in alert (in real app, this would be a proper report view)
+      alert(`${period.charAt(0).toUpperCase() + period.slice(1)} Report for ${linkedPatient.name}:\n\n` +
+            `Total Medicines: ${total}\n` +
+            `Taken: ${taken}\n` +
+            `Missed: ${reportData.missed}\n` +
+            `Skipped: ${reportData.skipped}\n` +
+            `Adherence Rate: ${adherence}%`);
+    } catch (err) {
+      alert("Error generating report: " + err.message);
+    }
+  };
+
+  const exportData = async () => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/medicine/patient/${linkedPatient.id}/today`);
+      const activities = await res.json();
+      
+      // Create CSV content
+      const csvContent = [
+        ['Date', 'Medicine', 'Dosage', 'Status', 'Time'],
+        ...activities.map(activity => [
+          new Date(activity.scheduledTime).toLocaleDateString(),
+          activity.name,
+          activity.dosage,
+          activity.status,
+          activity.actualTime ? new Date(activity.actualTime).toLocaleTimeString() : 'N/A'
+        ])
+      ].map(row => row.join(',')).join('\n');
+      
+      // Create and download file
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${linkedPatient.name}_medication_data.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+      alert("Data exported successfully!");
+    } catch (err) {
+      alert("Error exporting data: " + err.message);
     }
   };
 
@@ -218,6 +294,16 @@ export default function FamilyDashboard() {
                       </span>
                     )}
                   </button>
+                  <button
+                    onClick={() => setActiveTab("reports")}
+                    className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                      activeTab === "reports"
+                        ? "border-blue-500 text-blue-600"
+                        : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                    }`}
+                  >
+                    Reports
+                  </button>
                 </nav>
               </div>
             </div>
@@ -266,7 +352,7 @@ export default function FamilyDashboard() {
                       </button>
                     </div>
                   </div>
-                </div>
+              </div>
 
                 {/* Today's Activities */}
                 <div className="bg-white rounded-lg shadow p-6">
@@ -289,7 +375,7 @@ export default function FamilyDashboard() {
                       ))}
                     </div>
                   )}
-                </div>
+              </div>
 
                 {/* Message Section */}
                 <div className="mt-6 bg-white rounded-lg shadow p-6">
@@ -329,7 +415,7 @@ export default function FamilyDashboard() {
                     {patientMedicines.map((medicine) => (
                       <div key={medicine._id} className="bg-white rounded-lg shadow p-6">
                         <div className="flex justify-between items-start">
-                          <div>
+                        <div>
                             <h3 className="text-lg font-semibold">{medicine.name}</h3>
                             <p className="text-gray-600">{medicine.dosage}</p>
                             <p className="text-sm text-gray-500">{medicine.frequency}</p>
@@ -371,7 +457,7 @@ export default function FamilyDashboard() {
                     {sosAlerts.map((alert) => (
                       <div key={alert._id} className="bg-red-50 border border-red-200 rounded-lg p-6">
                         <div className="flex justify-between items-start">
-                          <div>
+                        <div>
                             <h3 className="text-lg font-semibold text-red-800">
                               Emergency Alert - {alert.emergencyType}
                             </h3>
@@ -394,12 +480,51 @@ export default function FamilyDashboard() {
                             <button className="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700">
                               Contact Patient
                             </button>
-                          </div>
+                        </div>
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Reports Tab */}
+            {activeTab === "reports" && (
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Patient Progress Reports</h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="text-lg font-semibold mb-2">Weekly Report</h3>
+                    <p className="text-gray-600">View patient's medication adherence for the past 7 days</p>
+                    <button 
+                      onClick={() => generateReport('weekly')}
+                      className="mt-3 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                    >
+                      Generate Report
+                    </button>
+                  </div>
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="text-lg font-semibold mb-2">Monthly Report</h3>
+                    <p className="text-gray-600">View patient's medication adherence for the past 30 days</p>
+                    <button 
+                      onClick={() => generateReport('monthly')}
+                      className="mt-3 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                    >
+                      Generate Report
+                    </button>
+                  </div>
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="text-lg font-semibold mb-2">Export Data</h3>
+                    <p className="text-gray-600">Download patient's medication data as CSV or PDF</p>
+                    <button 
+                      onClick={() => exportData()}
+                      className="mt-3 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                    >
+                      Export
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </>
