@@ -1,48 +1,357 @@
-import React, {useEffect, useState} from "react";
-import { collection, query, onSnapshot } from "firebase/firestore";
-import { db, auth } from "../services/firebase";
-import { onAuthStateChanged } from "firebase/auth";
-import { CSVLink } from "react-csv";
+import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
-export default function DoctorDashboard(){
-  const [patients, setPatients] = useState([]); // will hold objects {uid, email, adherence}
-  // For demo: fetch all users with role patient (small projects)
-  useEffect(()=> {
-    const q = query(collection(db,"users"));
-    const unsub = onSnapshot(q,snap => {
-      const pats = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u=>u.role==="patient");
-      setPatients(pats);
-    });
-    return () => unsub();
-  },[]);
+export default function DoctorDashboard() {
+  const navigate = useNavigate();
+  const [user, setUser] = useState(null);
+  const [patients, setPatients] = useState([]);
+  const [activeTab, setActiveTab] = useState("overview");
+  const [selectedPatient, setSelectedPatient] = useState(null);
+  const [patientMedicines, setPatientMedicines] = useState([]);
+  const [patientActivities, setPatientActivities] = useState([]);
+  const [sosAlerts, setSosAlerts] = useState([]);
 
-  // compute mock adherence by reading logs (skipped for brevity: you can compute by counts)
+  useEffect(() => {
+    const userData = localStorage.getItem("user");
+    if (!userData) {
+      navigate("/");
+      return;
+    }
+    const userObj = JSON.parse(userData);
+    if (userObj.role !== "Doctor") {
+      navigate("/");
+      return;
+    }
+    setUser(userObj);
+  }, [navigate]);
+
+  useEffect(() => {
+    if (user && user.patients) {
+      fetchPatients();
+      fetchSOSAlerts();
+    }
+  }, [user]);
+
+  const fetchPatients = async () => {
+    try {
+      const patientPromises = user.patients.map(patientId => 
+        fetch(`http://localhost:5000/api/auth/profile/${patientId}`).then(res => res.json())
+      );
+      const patientData = await Promise.all(patientPromises);
+      setPatients(patientData);
+    } catch (err) {
+      console.error("Error fetching patients:", err);
+    }
+  };
+
+  const fetchSOSAlerts = async () => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/sos/alerts/${user.id}`);
+      const data = await res.json();
+      setSosAlerts(data);
+    } catch (err) {
+      console.error("Error fetching SOS alerts:", err);
+    }
+  };
+
+  const fetchPatientDetails = async (patientId) => {
+    try {
+      const [medicinesRes, activitiesRes] = await Promise.all([
+        fetch(`http://localhost:5000/api/medicine/patient/${patientId}`),
+        fetch(`http://localhost:5000/api/medicine/patient/${patientId}/today`)
+      ]);
+      
+      const medicines = await medicinesRes.json();
+      const activities = await activitiesRes.json();
+      
+      setPatientMedicines(medicines);
+      setPatientActivities(activities);
+    } catch (err) {
+      console.error("Error fetching patient details:", err);
+    }
+  };
+
+  const getAdherenceColor = (adherence) => {
+    if (adherence >= 90) return "bg-green-100 text-green-800 border-green-200";
+    if (adherence >= 70) return "bg-yellow-100 text-yellow-800 border-yellow-200";
+    return "bg-red-100 text-red-800 border-red-200";
+  };
+
+  const getAdherenceStatus = (adherence) => {
+    if (adherence >= 90) return "Excellent";
+    if (adherence >= 70) return "Moderate";
+    return "Poor";
+  };
+
+  if (!user) return <div>Loading...</div>;
+
   return (
-    <div className="p-6">
-      <h1 className="text-2xl mb-4">Doctor Dashboard</h1>
-      <div className="grid gap-3">
-        {patients.map(p => (
-          <PatientCard key={p.id} patient={p} />
-        ))}
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-4">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Doctor Dashboard</h1>
+              <p className="text-gray-600">Welcome back, Dr. {user.name}</p>
+              <p className="text-sm text-blue-600">Your Code: {user.uniqueCode}</p>
+            </div>
+            <div className="flex space-x-3">
+              <button
+                onClick={() => navigate("/")}
+                className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Tabs */}
+        <div className="mb-6">
+          <div className="border-b border-gray-200">
+            <nav className="-mb-px flex space-x-8">
+              <button
+                onClick={() => setActiveTab("overview")}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === "overview"
+                    ? "border-blue-500 text-blue-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}
+              >
+                Patient Overview
+              </button>
+              <button
+                onClick={() => setActiveTab("alerts")}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === "alerts"
+                    ? "border-blue-500 text-blue-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}
+              >
+                SOS Alerts {sosAlerts.length > 0 && (
+                  <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full ml-1">
+                    {sosAlerts.length}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => setActiveTab("reports")}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === "reports"
+                    ? "border-blue-500 text-blue-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}
+              >
+                Reports
+              </button>
+            </nav>
+          </div>
+        </div>
+
+        {/* Patient Overview Tab */}
+        {activeTab === "overview" && (
+          <div>
+            <h2 className="text-xl font-semibold mb-4">Patient Overview</h2>
+            {patients.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                No patients linked yet. Share your unique code: {user.uniqueCode}
+              </div>
+            ) : (
+              <div className="grid gap-6">
+                {patients.map((patient) => {
+                  // Mock adherence calculation (in real app, calculate from actual data)
+                  const adherence = Math.floor(Math.random() * 40) + 60;
+                  return (
+                    <div key={patient.id} className="bg-white rounded-lg shadow p-6">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <h3 className="text-lg font-semibold">{patient.name}</h3>
+                          <p className="text-gray-600">{patient.email}</p>
+                          <p className="text-sm text-gray-500">Phone: {patient.phone || "Not provided"}</p>
+                          <p className="text-sm text-gray-500">Emergency: {patient.emergencyContact || "Not provided"}</p>
+                        </div>
+                        <div className="flex flex-col items-end space-y-2">
+                          <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getAdherenceColor(adherence)}`}>
+                            {getAdherenceStatus(adherence)} ({adherence}%)
+                          </span>
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => {
+                                setSelectedPatient(patient);
+                                fetchPatientDetails(patient.id);
+                                setActiveTab("patient-detail");
+                              }}
+                              className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700"
+                            >
+                              View Details
+                            </button>
+                            <button className="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700">
+                              Update Prescription
+                            </button>
+                          </div>
+                        </div>
       </div>
     </div>
   );
-}
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
-function PatientCard({ patient }){
-  // mock adherence percent for quick demo
-  const adherence = Math.floor(Math.random()*40)+60; // 60-99
-  const color = adherence >= 90 ? "bg-green-200" : adherence >= 70 ? "bg-yellow-200" : "bg-red-200";
-  return (
-    <div className={`${color} p-4 rounded`}>
-      <div className="flex justify-between">
+        {/* SOS Alerts Tab */}
+        {activeTab === "alerts" && (
+          <div>
+            <h2 className="text-xl font-semibold mb-4">Emergency Alerts</h2>
+            {sosAlerts.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                No active emergency alerts
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                {sosAlerts.map((alert) => (
+                  <div key={alert._id} className="bg-red-50 border border-red-200 rounded-lg p-6">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="text-lg font-semibold text-red-800">
+                          Emergency Alert - {alert.emergencyType}
+                        </h3>
+                        <p className="text-red-600">Patient: {alert.patient.name}</p>
+                        <p className="text-sm text-red-500">
+                          Time: {new Date(alert.timestamp).toLocaleString()}
+                        </p>
+                        {alert.location && (
+                          <p className="text-sm text-red-500">
+                            Location: {alert.location.latitude.toFixed(4)}, {alert.location.longitude.toFixed(4)}
+                          </p>
+                        )}
+                        {alert.notes && (
+                          <p className="text-sm text-red-500 mt-2">Notes: {alert.notes}</p>
+                        )}
+                      </div>
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => {
+                            // Handle SOS response
+                            fetch(`http://localhost:5000/api/sos/${alert._id}/respond`, {
+                              method: "PUT",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ userId: user.id, notes: "Responded by doctor" })
+                            }).then(() => {
+                              fetchSOSAlerts();
+                            });
+                          }}
+                          className="bg-red-600 text-white px-4 py-2 rounded text-sm hover:bg-red-700"
+                        >
+                          Respond
+                        </button>
+                        <button className="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700">
+                          View Location
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Patient Detail View */}
+        {activeTab === "patient-detail" && selectedPatient && (
+          <div>
+            <div className="flex items-center mb-4">
+              <button
+                onClick={() => setActiveTab("overview")}
+                className="mr-4 text-blue-600 hover:text-blue-800"
+              >
+                ← Back to Overview
+              </button>
+              <h2 className="text-xl font-semibold">Patient Details: {selectedPatient.name}</h2>
+            </div>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Medicines */}
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold mb-4">Current Medications</h3>
+                {patientMedicines.length === 0 ? (
+                  <p className="text-gray-500">No medications found</p>
+                ) : (
+                  <div className="space-y-3">
+                    {patientMedicines.map((medicine) => (
+                      <div key={medicine._id} className="border rounded p-3">
+                        <h4 className="font-medium">{medicine.name}</h4>
+                        <p className="text-sm text-gray-600">{medicine.dosage} - {medicine.frequency}</p>
+                        <p className="text-sm text-gray-500">{medicine.instructions}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Today's Activities */}
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold mb-4">Today's Medication Status</h3>
+                {patientActivities.length === 0 ? (
+                  <p className="text-gray-500">No activities for today</p>
+                ) : (
+                  <div className="space-y-3">
+                    {patientActivities.map((activity) => (
+                      <div key={activity._id} className="border rounded p-3">
+                        <div className="flex justify-between items-center">
         <div>
-          <div className="font-semibold">{patient.email}</div>
-          <div className="text-sm">Adherence: {adherence}%</div>
+                            <h4 className="font-medium">{activity.name}</h4>
+                            <p className="text-sm text-gray-600">{activity.dosage}</p>
+                          </div>
+                          <span className={`px-2 py-1 rounded text-sm ${
+                            activity.status === "Taken" ? "bg-green-100 text-green-800" :
+                            activity.status === "Missed" ? "bg-red-100 text-red-800" :
+                            "bg-yellow-100 text-yellow-800"
+                          }`}>
+                            {activity.status}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
         </div>
+        )}
+
+        {/* Reports Tab */}
+        {activeTab === "reports" && (
         <div>
-          <button className="bg-blue-600 text-white px-3 py-1 rounded">View</button>
+            <h2 className="text-xl font-semibold mb-4">Generate Reports</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold mb-2">Patient Adherence Report</h3>
+                <p className="text-gray-600">Generate comprehensive adherence reports for all patients</p>
+                <button className="mt-3 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+                  Generate Report
+                </button>
+              </div>
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold mb-2">Emergency Alerts Report</h3>
+                <p className="text-gray-600">Export emergency alert history and response times</p>
+                <button className="mt-3 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700">
+                  Generate Report
+                </button>
+              </div>
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold mb-2">Export All Data</h3>
+                <p className="text-gray-600">Download all patient data as CSV or PDF</p>
+                <button className="mt-3 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+                  Export Data
+                </button>
+              </div>
+            </div>
         </div>
+        )}
       </div>
     </div>
   );
